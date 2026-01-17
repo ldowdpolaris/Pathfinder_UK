@@ -5,46 +5,52 @@ import json
 st.set_page_config(page_title="Pathfinder UK", page_icon="🔬", layout="wide")
 
 st.title("🔬 Pathfinder: UKHSA Express")
-st.write("Live Data Feed: **Infectious Disease Portal**")
 
-# 1. Get the Sub-Themes link from the Theme page
-@st.cache_data
-def get_sub_themes():
-    base_url = "https://api.ukhsa-dashboard.data.gov.uk/themes/infectious_disease/"
-    r = requests.get(base_url)
-    # Reaching into the list we see on your screen right now
-    sub_themes_path = r.json()[0]["sub_themes"]
-    return requests.get(sub_themes_path).json()
+# The only hard link we need
+BASE_URL = "https://api.ukhsa-dashboard.data.gov.uk/themes/infectious_disease/"
 
 try:
-    sub_themes = get_sub_themes()
+    # 1. Get the Sub-Themes link
+    r = requests.get(BASE_URL)
+    data = r.json()
     
-    # Create a nice layout
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
+    # We check if it's a list (which we saw it was on your screen)
+    if isinstance(data, list):
+        sub_themes_url = data[0].get("sub_themes")
+    else:
+        sub_themes_url = data.get("sub_themes")
+
+    if sub_themes_url:
+        # 2. Get the actual list of categories
+        res = requests.get(sub_themes_url)
+        categories_data = res.json()
+        
+        # UI Setup
         st.subheader("Clinical Categories")
-        # Let the user pick a category
-        category_names = [item["name"] for item in sub_themes]
-        selected_cat = st.radio("Select a category to drill deep:", category_names)
-
-    with col2:
-        if selected_cat:
-            st.subheader(f"Topics in {selected_cat.replace('_', ' ').title()}")
-            
-            # Construct the Topic URL based on the selection
-            topic_url = f"https://api.ukhsa-dashboard.data.gov.uk/themes/infectious_disease/sub_themes/{selected_cat}/topics/"
-            
-            res = requests.get(topic_url)
-            if res.status_code == 200:
-                topics = res.json()
-                for t in topics:
-                    # Create a "Card" for each topic
-                    with st.expander(f"🧪 {t['name'].replace('_', ' ').title()}"):
-                        st.write(f"**Internal ID:** `{t['name']}`")
-                        st.caption(f"Endpoint: {topic_url}")
+        
+        # Handle if categories_data is a list of names or objects
+        category_names = []
+        for item in categories_data:
+            if isinstance(item, dict):
+                category_names.append(item.get("name"))
             else:
-                st.warning("No specific topics found for this category yet.")
+                category_names.append(item)
 
+        selected_cat = st.selectbox("Choose a category:", category_names)
+
+        if selected_cat:
+            # 3. Construct the final Topic URL
+            topic_url = f"{sub_themes_url}{selected_cat}/topics/"
+            st.caption(f"Drilling: {topic_url}")
+            
+            t_res = requests.get(topic_url)
+            if t_res.status_code == 200:
+                topics = t_res.json()
+                for t in topics:
+                    st.success(f"🧪 **{t.get('name').replace('_', ' ').title()}**")
+            else:
+                st.warning("No topics found at this level yet.")
 except Exception as e:
     st.error(f"Logic Leak: {e}")
+    # This will show us the raw data so we can fix it if it fails again
+    st.write("Raw Debug Data:", data)
