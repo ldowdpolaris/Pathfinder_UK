@@ -1,42 +1,48 @@
 import streamlit as st
 import requests
+import json
 
 st.set_page_config(page_title="Pathfinder UK", page_icon="🔬", layout="wide")
 
 st.title("🔬 Pathfinder: UKHSA Express")
 st.write("Status: **Cloud-Verified Pipeline Active**")
 
+# The North Star URL
 BASE_URL = "https://api.ukhsa-dashboard.data.gov.uk/themes/infectious_disease/"
 
-# Step 1: Fetch Categories for the Sidebar
-@st.cache_data # This makes the app lightning fast
-def get_categories():
-    r = requests.get(BASE_URL)
-    sub_themes_url = r.json()[0]["sub_themes"]
-    return requests.get(sub_themes_url).json()
-
-try:
-    categories = get_categories()
-    category_names = [item["name"] for item in categories]
-
-    # UI: Selection Box
-    selected_cat = st.selectbox("Select Clinical Category", category_names)
-
-    if selected_cat:
-        st.subheader(f"Drilling into: {selected_cat}")
-        
-        # Step 2: Find the 'topics' link for the selected category
-        # The API structure: themes -> infectious_disease -> sub_themes -> [category] -> topics
-        target_url = f"{BASE_URL}sub_themes/{selected_cat}/topics/"
-        
-        if st.button(f"Scan {selected_cat} Topics"):
-            res = requests.get(target_url)
-            if res.status_code == 200:
-                topics = res.json()
-                for t in topics:
-                    st.write(f"🧪 **{t['name']}**")
+def safe_drill():
+    try:
+        r = requests.get(BASE_URL, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            
+            # The API returns a list [ {...} ]. We need the first item.
+            if isinstance(data, list) and len(data) > 0:
+                core_data = data[0]
+                
+                # Check what keys are actually here to avoid the KeyError
+                st.write(f"📡 *System Check Keys: {list(core_data.keys())}*")
+                
+                # Get the link to sub-themes (using .get to avoid crashes)
+                sub_themes_link = core_data.get("sub_themes")
+                
+                if sub_themes_link:
+                    st.success("🔗 Found Clinical Path. Drilling now...")
+                    res = requests.get(sub_themes_link)
+                    sub_themes = res.json()
+                    
+                    for item in sub_themes:
+                        name = item.get("name", "Unknown Category")
+                        st.info(f"📂 Category: {name}")
+                else:
+                    st.error("Target key 'sub_themes' not found in API response.")
             else:
-                st.warning("This category is currently being updated by UKHSA.")
+                st.error("API returned an empty or unexpected list format.")
+        else:
+            st.error(f"Handshake Failed. Status: {r.status_code}")
+            
+    except Exception as e:
+        st.error(f"⚠️ Logic Leak Details: {e}")
 
-except Exception as e:
-    st.error(f"System Check: {e}")
+if st.button("Initialize Deep Drill"):
+    safe_drill()
