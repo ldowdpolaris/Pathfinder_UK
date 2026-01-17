@@ -2,39 +2,49 @@ import streamlit as st
 import requests
 import json
 
-st.set_page_config(page_title="Pathfinder UK", page_icon="🔬")
+st.set_page_config(page_title="Pathfinder UK", page_icon="🔬", layout="wide")
 
 st.title("🔬 Pathfinder: UKHSA Express")
-st.write("Status: **Global Inventory Mode**")
+st.write("Live Data Feed: **Infectious Disease Portal**")
 
-# This is the "Bedrock" URL - it rarely 404s because it's the root of the data
-GLOBAL_URL = "https://api.ukhsa-dashboard.data.gov.uk/themes/"
+# 1. Get the Sub-Themes link from the Theme page
+@st.cache_data
+def get_sub_themes():
+    base_url = "https://api.ukhsa-dashboard.data.gov.uk/themes/infectious_disease/"
+    r = requests.get(base_url)
+    # Reaching into the list we see on your screen right now
+    sub_themes_path = r.json()[0]["sub_themes"]
+    return requests.get(sub_themes_path).json()
 
-def global_drill():
-    try:
-        r = requests.get(GLOBAL_URL, timeout=10)
-        if r.status_code == 200:
-            data = r.json()
-            st.success("✅ Bedrock reached. Analyzing Global Themes...")
+try:
+    sub_themes = get_sub_themes()
+    
+    # Create a nice layout
+    col1, col2 = st.columns([1, 2])
+    
+    with col1:
+        st.subheader("Clinical Categories")
+        # Let the user pick a category
+        category_names = [item["name"] for item in sub_themes]
+        selected_cat = st.radio("Select a category to drill deep:", category_names)
+
+    with col2:
+        if selected_cat:
+            st.subheader(f"Topics in {selected_cat.replace('_', ' ').title()}")
             
-            # Show the raw map so we can see the NEW names
-            for theme in data:
-                theme_name = theme.get('name')
-                # In the new API, the link IS the path
-                link = theme.get('link')
-                st.info(f"📍 **Theme:** {theme_name}")
-                st.caption(f"Direct Path: {link}")
-                
-                # Let's try to peek inside one level automatically
-                if theme_name == 'infectious_disease':
-                    st.write("---")
-                    st.write("🔍 Automatically scanning Infectious Disease structure...")
-                    inner_r = requests.get(link)
-                    st.json(inner_r.json()) # This will show us the EXACT new keys
-        else:
-            st.error(f"Global Handshake Failed: {r.status_code}")
-    except Exception as e:
-        st.error(f"Logic Leak: {e}")
+            # Construct the Topic URL based on the selection
+            topic_url = f"https://api.ukhsa-dashboard.data.gov.uk/themes/infectious_disease/sub_themes/{selected_cat}/topics/"
+            
+            res = requests.get(topic_url)
+            if res.status_code == 200:
+                topics = res.json()
+                for t in topics:
+                    # Create a "Card" for each topic
+                    with st.expander(f"🧪 {t['name'].replace('_', ' ').title()}"):
+                        st.write(f"**Internal ID:** `{t['name']}`")
+                        st.caption(f"Endpoint: {topic_url}")
+            else:
+                st.warning("No specific topics found for this category yet.")
 
-if st.button("Run Global Discovery"):
-    global_drill()
+except Exception as e:
+    st.error(f"Logic Leak: {e}")
